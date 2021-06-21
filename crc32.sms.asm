@@ -52,11 +52,13 @@ _bank_loop:
     ld hl, $ffff
     ld (hl), c
     
-    ; We want to checksum 16KB.
-    ld bc, 16*1024
+    ; Unrolling 64 times mans we need to loop only 256 times to cover 16KB
+.define UNROLL_COUNT 16*1024/256
+    ld b, 0 ; to get 256 loops
     ld de, $8000
     
 _bytes_in_bank_loop:
+.repeat UNROLL_COUNT
     ld a, (de)
     inc de
     
@@ -104,15 +106,16 @@ _bytes_in_bank_loop:
       xor b
       ld (hl), a
     exx
-    
-    dec c
-    jp nz, _bytes_in_bank_loop
+
+.endr
+
     dec b
     jp nz, _bytes_in_bank_loop
   
   pop bc
   inc c
-  djnz _bank_loop
+  dec b
+  jp nz, _bank_loop
   
   ; Invert all bits when done
   ld hl, RAM_CRC
