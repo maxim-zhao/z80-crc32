@@ -404,8 +404,8 @@ CRCLookupTable:
 .bank 1 slot 1
 .org 0
 data:
-.incbin "data.bin" skip 0 read 16*1024
+.incbin "data.bin" skip $0000 read $4000
 
 .bank 2 slot 2
 .org 0
-.incbin "data.bin" skip 16*1024 read 16*1024
+.incbin "data.bin" skip $4000 read $4000
