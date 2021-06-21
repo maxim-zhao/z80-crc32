@@ -44,18 +44,15 @@ crc32:
     ld (hl), a
   exx
   
-  ; set up paging
-  ld c, 1 ; initial bank
+  ld de, $4000 ; Initial address
+  
   
 _bank_loop:
   push bc
-    ld hl, $ffff
-    ld (hl), c
     
     ; Unrolling 64 times mans we need to loop only 256 times to cover 16KB
 .define UNROLL_COUNT 16*1024/256
     ld b, 0 ; to get 256 loops
-    ld de, $8000
     
 _bytes_in_bank_loop:
 .repeat UNROLL_COUNT
@@ -113,7 +110,7 @@ _bytes_in_bank_loop:
     jp nz, _bytes_in_bank_loop
   
   pop bc
-  inc c
+
   dec b
   jp nz, _bank_loop
   
@@ -401,11 +398,11 @@ CRCLookupTable:
 .ends
 
 ; We fill with random data for CRCing
-.bank 1 slot 1
+.bank 1
 .org 0
 data:
 .incbin "data.bin" skip $0000 read $4000
 
-.bank 2 slot 2
+.bank 2
 .org 0
 .incbin "data.bin" skip $4000 read $4000
