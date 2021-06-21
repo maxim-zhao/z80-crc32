@@ -68,15 +68,61 @@ crc32:
   inc hl
   ld (hl), a
   
--:ld a, (de)
+--:
+  ld a, (de)
   inc de
   ld hl, RAM_CRC
-  call UpdateChecksum
+  push bc
+  push de
+    ; Lookup index = (low byte of crc) xor (new byte)
+    ; point to low byte of old crc
+    ld hl, RAM_CRC+3
+    xor (hl) ; xor with new byte
+    ld l, a
+    ld h, 0
+    add hl, hl ; use result as index into table of 4 byte entries
+    add hl, hl
+    ex de, hl
+      ld hl, CRCLookupTable
+      add hl, de ; point to selected entry in CRCLookupTable
+    ex de, hl
+
+    ; New CRC = ((old CRC) >> 8) xor (pointed data)
+    ; llmmnnoo ; looked up value
+    ; 00aabbcc ; shifted old CRC
+    ; AABBCCDD ; new CRC is the byte-wise XOR
+    
+    ld a, (de) ; byte 1
+    ld hl, RAM_CRC
+    ld b, (hl)
+    ld (hl), a
+    inc de
+    inc hl
+    
+    ld a, (de) ; byte 2
+    xor b
+    ld b, (hl)
+    ld (hl), a
+    inc de
+    inc hl
+
+    ld a, (de) ; byte 3
+    xor b
+    ld b, (hl)
+    ld (hl), a
+    inc de
+    inc hl
+
+    ld a, (de) ; byte 4
+    xor b
+    ld (hl), a
+  pop de
+  pop bc
   
   dec bc
   ld a, b
   or c
-  jr nz, -
+  jp nz, --
   
   ; Invert all bits when done
   ld hl, RAM_CRC
@@ -102,41 +148,6 @@ crc32:
 ; entry: a contains next byte, hl points to crc
 ; exit:  crc updated
 UpdateChecksum:
-  push af
-  push bc
-  push de
-  push hl
-    push hl
-      ; Lookup index = (low byte of crc) xor (new byte)
-      ld de, 3
-      add hl, de ; point to low byte of old crc
-      xor (hl) ; xor with new byte
-      ld l, a
-      ld h, 0
-      add hl, hl ; use result as index into table of 4 byte entries
-      add hl, hl
-      ex de, hl
-      ld hl, CRCLookupTable
-      add hl, de ; point to selected entry in CRCLookupTable
-      ex de, hl
-    pop hl
-    ; New CRC = ((old CRC) >> 8) xor (pointed data)
-    ; llmmnnoo ; looked up value
-    ; 00aabbcc ; shifted old CRC
-    ; AABBCCDD ; new CRC is the byte-wise XOR
-    ld bc, 4 ; c = byte count, b = accumulator
-  -:ld a, (de)
-    xor b
-    ld b, (hl) ; save old CRC byte for next loop
-    ld (hl), a ; push XORed value over it
-    inc de
-    inc hl
-    dec c
-    jp nz, -
-  pop hl
-  pop de
-  pop bc
-  pop af
   ret
 
 CRCLookupTable:
