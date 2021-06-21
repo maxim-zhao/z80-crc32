@@ -404,10 +404,8 @@ CRCLookupTable:
 .bank 1 slot 1
 .org 0
 data:
-;.dbrnd 16*1024
-.dsb 16*1024 0
+.incbin "data.bin" skip 0 read 16*1024
 
 .bank 2 slot 2
 .org 0
-;.dbrnd 16*1024
-.dsb 16*1024 0
+.incbin "data.bin" skip 16*1024 read 16*1024
