@@ -67,16 +67,14 @@ crc32:
   ld (hl), a
   inc hl
   ld (hl), a
-  
+
 --:
   ld a, (de)
   inc de
-  ld hl, RAM_CRC
   push bc
   push de
     ; Lookup index = (low byte of crc) xor (new byte)
-    ; point to low byte of old crc
-    ld hl, RAM_CRC+3
+    ; hl is already pointing at the low byte of the crc
     xor (hl) ; xor with new byte
     ld l, a
     ld h, 0
@@ -91,10 +89,11 @@ crc32:
     ; llmmnnoo ; looked up value
     ; 00aabbcc ; shifted old CRC
     ; AABBCCDD ; new CRC is the byte-wise XOR
+    ld hl, RAM_CRC ; point at dest byte
     
     ld a, (de) ; byte 1
-    ld hl, RAM_CRC
-    ld b, (hl)
+    ; no xor for first byte
+    ld b, (hl) ; save old value for next byte
     ld (hl), a
     inc de
     inc hl
