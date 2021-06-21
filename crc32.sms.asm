@@ -14,40 +14,14 @@ banks 3
 ;.sdsctag 1.0, "CRC32 test", "Test-bed for CRC32 algorithm optimisation", "Maxim"
 
 .enum $c000
-  RAM_CRC dl
+  RAM_CRC dsb 4 ; Stored as big-endian...
 .ende
 
 .bank 0 slot 0
 .org 0
 .section "Entry" force
-  di
-  im 1
-  jp main
-.ends
-
-.org $38
-.section "Interrupt handler" force
-  reti
-.ends
-
-.org $66
-.section "NMI handler" force
-  retn
-.ends
-
-.section "Main" free
-main:
-  ld sp, $dff0
-  ; Init paging
-  xor a
-  ld ($fffd),a
-  inc a
-  ld ($fffe),a
-  inc a
-  ld ($ffff),a
-  ; point to data
-  ld de, data
-  ld bc, 32*1024
+  ; Set page count
+  ld b, 2
   jp crc32 ; and ret for test
 .ends
 
@@ -69,6 +43,18 @@ crc32:
     inc hl
     ld (hl), a
   exx
+  
+  ; set up paging
+  ld c, 1
+  
+---:
+  push bc
+  ld hl, $ffff
+  ld (hl), c
+  
+  ; We want to checksum 16KB.
+  ld bc, 16*1024
+  ld de, $8000
   
 --:
   ld a, (de)
@@ -124,6 +110,10 @@ crc32:
   or c
   jp nz, --
   
+  pop bc
+  inc c
+  djnz ---
+  
   ; Invert all bits when done
   ld hl, RAM_CRC
   ld a, (hl)
@@ -144,14 +134,9 @@ crc32:
   
   ret
 
-; 32-bit crc routine
-; entry: a contains next byte, hl points to crc
-; exit:  crc updated
-UpdateChecksum:
-  ret
-
 CRCLookupTable:
 .macro CRC
+  ; Big-endian storage
   .db (\1>>24)&$ff, (\1>>16)&$ff, (\1>>8)&$ff, \1&$ff
 .endm
   CRC $00000000
