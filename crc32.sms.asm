@@ -58,21 +58,23 @@ crc32:
 ; exit: RAM_CRC updated
 
   ; init to $ffffffff
-  ld hl, RAM_CRC
-  ld a, $ff
-  ld (hl), a
-  inc hl
-  ld (hl), a
-  inc hl
-  ld (hl), a
-  inc hl
-  ld (hl), a
-
+  exx
+    ld hl, RAM_CRC
+    ld a, $ff
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+  exx
+  
 --:
   ld a, (de)
   inc de
-  push bc
-  push de
+  
+  exx
     ; Lookup index = (low byte of crc) xor (new byte)
     ; hl is already pointing at the low byte of the crc
     xor (hl) ; xor with new byte
@@ -115,8 +117,7 @@ crc32:
     ld a, (de) ; byte 4
     xor b
     ld (hl), a
-  pop de
-  pop bc
+  exx
   
   dec bc
   ld a, b
