@@ -57,7 +57,16 @@ crc32:
 ; entry: de points to data, bc = count
 ; exit: RAM_CRC updated
 
-  call InitialiseCRC
+  ; init to $ffffffff
+  ld hl, RAM_CRC
+  ld a, $ff
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), a
   
 -:ld a, (de)
   inc de
@@ -71,12 +80,21 @@ crc32:
   
   ; Invert all bits when done
   ld hl, RAM_CRC
-  ld b, 4
--:ld a, (hl)
+  ld a, (hl)
   cpl
   ld (hl), a
   inc hl
-  djnz -
+  ld a, (hl)
+  cpl
+  ld (hl), a
+  inc hl
+  ld a, (hl)
+  cpl
+  ld (hl), a
+  inc hl
+  ld a, (hl)
+  cpl
+  ld (hl), a
   
   ret
 
@@ -117,21 +135,6 @@ UpdateChecksum:
     jp nz, -
   pop hl
   pop de
-  pop bc
-  pop af
-  ret
-
-InitialiseCRC:
-  push af
-  push bc
-  push hl
-    ld hl, RAM_CRC
-    ld a, $ff
-    ld b, 4
-  -:ld (hl), a
-    inc hl
-    djnz -
-  pop hl
   pop bc
   pop af
   ret
