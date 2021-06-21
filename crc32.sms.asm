@@ -45,74 +45,74 @@ crc32:
   exx
   
   ; set up paging
-  ld c, 1
+  ld c, 1 ; initial bank
   
----:
+_bank_loop:
   push bc
-  ld hl, $ffff
-  ld (hl), c
-  
-  ; We want to checksum 16KB.
-  ld bc, 16*1024
-  ld de, $8000
-  
---:
-  ld a, (de)
-  inc de
-  
-  exx
-    ; Lookup index = (low byte of crc) xor (new byte)
-    ; hl is already pointing at the low byte of the crc
-    xor (hl) ; xor with new byte
-    ld l, a
-    ld h, 0
-    add hl, hl ; use result as index into table of 4 byte entries
-    add hl, hl
-    ex de, hl
-      ld hl, CRCLookupTable
-      add hl, de ; point to selected entry in CRCLookupTable
-    ex de, hl
-
-    ; New CRC = ((old CRC) >> 8) xor (pointed data)
-    ; llmmnnoo ; looked up value
-    ; 00aabbcc ; shifted old CRC
-    ; AABBCCDD ; new CRC is the byte-wise XOR
-    ld hl, RAM_CRC ; point at dest byte
+    ld hl, $ffff
+    ld (hl), c
     
-    ld a, (de) ; byte 1
-    ; no xor for first byte
-    ld b, (hl) ; save old value for next byte
-    ld (hl), a
-    inc de
-    inc hl
+    ; We want to checksum 16KB.
+    ld bc, 16*1024
+    ld de, $8000
     
-    ld a, (de) ; byte 2
-    xor b
-    ld b, (hl)
-    ld (hl), a
+_bytes_in_bank_loop:
+    ld a, (de)
     inc de
-    inc hl
+    
+    exx
+      ; Lookup index = (low byte of crc) xor (new byte)
+      ; hl is already pointing at the low byte of the crc
+      xor (hl) ; xor with new byte
+      ld l, a
+      ld h, 0
+      add hl, hl ; use result as index into table of 4 byte entries
+      add hl, hl
+      ex de, hl
+        ld hl, CRCLookupTable
+        add hl, de ; point to selected entry in CRCLookupTable
+      ex de, hl
 
-    ld a, (de) ; byte 3
-    xor b
-    ld b, (hl)
-    ld (hl), a
-    inc de
-    inc hl
+      ; New CRC = ((old CRC) >> 8) xor (pointed data)
+      ; llmmnnoo ; looked up value
+      ; 00aabbcc ; shifted old CRC
+      ; AABBCCDD ; new CRC is the byte-wise XOR
+      ld hl, RAM_CRC ; point at dest byte
+      
+      ld a, (de) ; byte 1
+      ; no xor for first byte
+      ld b, (hl) ; save old value for next byte
+      ld (hl), a
+      inc de
+      inc hl
+      
+      ld a, (de) ; byte 2
+      xor b
+      ld b, (hl)
+      ld (hl), a
+      inc de
+      inc hl
 
-    ld a, (de) ; byte 4
-    xor b
-    ld (hl), a
-  exx
-  
-  dec bc
-  ld a, b
-  or c
-  jp nz, --
+      ld a, (de) ; byte 3
+      xor b
+      ld b, (hl)
+      ld (hl), a
+      inc de
+      inc hl
+
+      ld a, (de) ; byte 4
+      xor b
+      ld (hl), a
+    exx
+    
+    dec c
+    jp nz, _bytes_in_bank_loop
+    dec b
+    jp nz, _bytes_in_bank_loop
   
   pop bc
   inc c
-  djnz ---
+  djnz _bank_loop
   
   ; Invert all bits when done
   ld hl, RAM_CRC
