@@ -11,8 +11,8 @@ banksize $4000
 banks 3
 .endro
 
-; With UNROLL:    225.2 cycles per data byte, 2549 bytes code, 1024 bytes table
-; Without UNROLL: 239.1 cycles per data byte,   97 bytes code, 1024 bytes table
+; With UNROLL:    225.2 cycles per data byte, 2549 bytes code, 1024 bytes table = 32.98s for 512KB
+; Without UNROLL: 239.1 cycles per data byte,   97 bytes code, 1024 bytes table = 35.02s for 512KB
 .define UNROLL
 
 .enum $c000
@@ -21,17 +21,13 @@ banks 3
 
 .bank 0 slot 0
 .org 0
-.section "Entry" force
+.section "Test" force
   ; Set page count
   ld b, 2
-  jp crc32 ; and ret for test
-.ends
 
-.section "CRC32 function" free
-crc32:
 ; 32-bit crc routine
-; entry: de points to data, bc = count
-; exit: RAM_CRC updated
+; entry: de points to data, b = number of 16KB pages to checksum
+; exit: RAM_CRC holds the CRC32 of the data
 
   ; init to $ffffffff
   exx
@@ -146,7 +142,7 @@ _bytes_in_bank_loop:
   cpl
   ld (hl), a
   
-  ret
+  ret ; to end the test
 
 CRCLookupTable:
 .dd $00000000 $77073096 $ee0e612c $990951ba $076dc419 $706af48f $e963a535 $9e6495a3
