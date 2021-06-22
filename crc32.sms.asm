@@ -11,7 +11,9 @@ banksize $4000
 banks 3
 .endro
 
-;.sdsctag 1.0, "CRC32 test", "Test-bed for CRC32 algorithm optimisation", "Maxim"
+; With UNROLL:    225.2 cycles per data byte, 2549 bytes code, 1024 bytes table
+; Without UNROLL: 239.1 cycles per data byte,   97 bytes code, 1024 bytes table
+.define UNROLL
 
 .enum $c000
   RAM_CRC dd ; Stored as big-endian...
@@ -51,11 +53,18 @@ _bank_loop:
   push bc
     
     ; Unrolling 64 times mans we need to loop only 256 times to cover 16KB
+.ifdef UNROLL
 .define UNROLL_COUNT 16*1024/256
     ld b, 0 ; to get 256 loops
+.else
+    ld bc, 16*1024
+.endif
     
 _bytes_in_bank_loop:
+
+.ifdef UNROLL
 .repeat UNROLL_COUNT
+.endif
     ld a, (de)
     inc de
     
@@ -104,11 +113,16 @@ _bytes_in_bank_loop:
       ld (hl), a
     exx
 
+.ifdef UNROLL
 .endr
-
     dec b
     jp nz, _bytes_in_bank_loop
-  
+.else
+    dec c
+    jp nz, _bytes_in_bank_loop
+    dec b
+    jp nz, _bytes_in_bank_loop
+.endif
   pop bc
 
   dec b
@@ -135,267 +149,38 @@ _bytes_in_bank_loop:
   ret
 
 CRCLookupTable:
-.macro CRC
-  ; Big-endian storage
-  ;.db (\1>>24)&$ff, (\1>>16)&$ff, (\1>>8)&$ff, \1&$ff
-  .dd \1
-.endm
-  CRC $00000000
-  CRC $77073096
-  CRC $ee0e612c
-  CRC $990951ba
-  CRC $076dc419
-  CRC $706af48f
-  CRC $e963a535
-  CRC $9e6495a3
-  CRC $0edb8832
-  CRC $79dcb8a4
-  CRC $e0d5e91e
-  CRC $97d2d988
-  CRC $09b64c2b
-  CRC $7eb17cbd
-  CRC $e7b82d07
-  CRC $90bf1d91
-  CRC $1db71064
-  CRC $6ab020f2
-  CRC $f3b97148
-  CRC $84be41de
-  CRC $1adad47d
-  CRC $6ddde4eb
-  CRC $f4d4b551
-  CRC $83d385c7
-  CRC $136c9856
-  CRC $646ba8c0
-  CRC $fd62f97a
-  CRC $8a65c9ec
-  CRC $14015c4f
-  CRC $63066cd9
-  CRC $fa0f3d63
-  CRC $8d080df5
-  CRC $3b6e20c8
-  CRC $4c69105e
-  CRC $d56041e4
-  CRC $a2677172
-  CRC $3c03e4d1
-  CRC $4b04d447
-  CRC $d20d85fd
-  CRC $a50ab56b
-  CRC $35b5a8fa
-  CRC $42b2986c
-  CRC $dbbbc9d6
-  CRC $acbcf940
-  CRC $32d86ce3
-  CRC $45df5c75
-  CRC $dcd60dcf
-  CRC $abd13d59
-  CRC $26d930ac
-  CRC $51de003a
-  CRC $c8d75180
-  CRC $bfd06116
-  CRC $21b4f4b5
-  CRC $56b3c423
-  CRC $cfba9599
-  CRC $b8bda50f
-  CRC $2802b89e
-  CRC $5f058808
-  CRC $c60cd9b2
-  CRC $b10be924
-  CRC $2f6f7c87
-  CRC $58684c11
-  CRC $c1611dab
-  CRC $b6662d3d
-  CRC $76dc4190
-  CRC $01db7106
-  CRC $98d220bc
-  CRC $efd5102a
-  CRC $71b18589
-  CRC $06b6b51f
-  CRC $9fbfe4a5
-  CRC $e8b8d433
-  CRC $7807c9a2
-  CRC $0f00f934
-  CRC $9609a88e
-  CRC $e10e9818
-  CRC $7f6a0dbb
-  CRC $086d3d2d
-  CRC $91646c97
-  CRC $e6635c01
-  CRC $6b6b51f4
-  CRC $1c6c6162
-  CRC $856530d8
-  CRC $f262004e
-  CRC $6c0695ed
-  CRC $1b01a57b
-  CRC $8208f4c1
-  CRC $f50fc457
-  CRC $65b0d9c6
-  CRC $12b7e950
-  CRC $8bbeb8ea
-  CRC $fcb9887c
-  CRC $62dd1ddf
-  CRC $15da2d49
-  CRC $8cd37cf3
-  CRC $fbd44c65
-  CRC $4db26158
-  CRC $3ab551ce
-  CRC $a3bc0074
-  CRC $d4bb30e2
-  CRC $4adfa541
-  CRC $3dd895d7
-  CRC $a4d1c46d
-  CRC $d3d6f4fb
-  CRC $4369e96a
-  CRC $346ed9fc
-  CRC $ad678846
-  CRC $da60b8d0
-  CRC $44042d73
-  CRC $33031de5
-  CRC $aa0a4c5f
-  CRC $dd0d7cc9
-  CRC $5005713c
-  CRC $270241aa
-  CRC $be0b1010
-  CRC $c90c2086
-  CRC $5768b525
-  CRC $206f85b3
-  CRC $b966d409
-  CRC $ce61e49f
-  CRC $5edef90e
-  CRC $29d9c998
-  CRC $b0d09822
-  CRC $c7d7a8b4
-  CRC $59b33d17
-  CRC $2eb40d81
-  CRC $b7bd5c3b
-  CRC $c0ba6cad
-  CRC $edb88320
-  CRC $9abfb3b6
-  CRC $03b6e20c
-  CRC $74b1d29a
-  CRC $ead54739
-  CRC $9dd277af
-  CRC $04db2615
-  CRC $73dc1683
-  CRC $e3630b12
-  CRC $94643b84
-  CRC $0d6d6a3e
-  CRC $7a6a5aa8
-  CRC $e40ecf0b
-  CRC $9309ff9d
-  CRC $0a00ae27
-  CRC $7d079eb1
-  CRC $f00f9344
-  CRC $8708a3d2
-  CRC $1e01f268
-  CRC $6906c2fe
-  CRC $f762575d
-  CRC $806567cb
-  CRC $196c3671
-  CRC $6e6b06e7
-  CRC $fed41b76
-  CRC $89d32be0
-  CRC $10da7a5a
-  CRC $67dd4acc
-  CRC $f9b9df6f
-  CRC $8ebeeff9
-  CRC $17b7be43
-  CRC $60b08ed5
-  CRC $d6d6a3e8
-  CRC $a1d1937e
-  CRC $38d8c2c4
-  CRC $4fdff252
-  CRC $d1bb67f1
-  CRC $a6bc5767
-  CRC $3fb506dd
-  CRC $48b2364b
-  CRC $d80d2bda
-  CRC $af0a1b4c
-  CRC $36034af6
-  CRC $41047a60
-  CRC $df60efc3
-  CRC $a867df55
-  CRC $316e8eef
-  CRC $4669be79
-  CRC $cb61b38c
-  CRC $bc66831a
-  CRC $256fd2a0
-  CRC $5268e236
-  CRC $cc0c7795
-  CRC $bb0b4703
-  CRC $220216b9
-  CRC $5505262f
-  CRC $c5ba3bbe
-  CRC $b2bd0b28
-  CRC $2bb45a92
-  CRC $5cb36a04
-  CRC $c2d7ffa7
-  CRC $b5d0cf31
-  CRC $2cd99e8b
-  CRC $5bdeae1d
-  CRC $9b64c2b0
-  CRC $ec63f226
-  CRC $756aa39c
-  CRC $026d930a
-  CRC $9c0906a9
-  CRC $eb0e363f
-  CRC $72076785
-  CRC $05005713
-  CRC $95bf4a82
-  CRC $e2b87a14
-  CRC $7bb12bae
-  CRC $0cb61b38
-  CRC $92d28e9b
-  CRC $e5d5be0d
-  CRC $7cdcefb7
-  CRC $0bdbdf21
-  CRC $86d3d2d4
-  CRC $f1d4e242
-  CRC $68ddb3f8
-  CRC $1fda836e
-  CRC $81be16cd
-  CRC $f6b9265b
-  CRC $6fb077e1
-  CRC $18b74777
-  CRC $88085ae6
-  CRC $ff0f6a70
-  CRC $66063bca
-  CRC $11010b5c
-  CRC $8f659eff
-  CRC $f862ae69
-  CRC $616bffd3
-  CRC $166ccf45
-  CRC $a00ae278
-  CRC $d70dd2ee
-  CRC $4e048354
-  CRC $3903b3c2
-  CRC $a7672661
-  CRC $d06016f7
-  CRC $4969474d
-  CRC $3e6e77db
-  CRC $aed16a4a
-  CRC $d9d65adc
-  CRC $40df0b66
-  CRC $37d83bf0
-  CRC $a9bcae53
-  CRC $debb9ec5
-  CRC $47b2cf7f
-  CRC $30b5ffe9
-  CRC $bdbdf21c
-  CRC $cabac28a
-  CRC $53b39330
-  CRC $24b4a3a6
-  CRC $bad03605
-  CRC $cdd70693
-  CRC $54de5729
-  CRC $23d967bf
-  CRC $b3667a2e
-  CRC $c4614ab8
-  CRC $5d681b02
-  CRC $2a6f2b94
-  CRC $b40bbe37
-  CRC $c30c8ea1
-  CRC $5a05df1b
-  CRC $2d02ef8d
+.dd $00000000 $77073096 $ee0e612c $990951ba $076dc419 $706af48f $e963a535 $9e6495a3
+.dd $0edb8832 $79dcb8a4 $e0d5e91e $97d2d988 $09b64c2b $7eb17cbd $e7b82d07 $90bf1d91
+.dd $1db71064 $6ab020f2 $f3b97148 $84be41de $1adad47d $6ddde4eb $f4d4b551 $83d385c7
+.dd $136c9856 $646ba8c0 $fd62f97a $8a65c9ec $14015c4f $63066cd9 $fa0f3d63 $8d080df5
+.dd $3b6e20c8 $4c69105e $d56041e4 $a2677172 $3c03e4d1 $4b04d447 $d20d85fd $a50ab56b
+.dd $35b5a8fa $42b2986c $dbbbc9d6 $acbcf940 $32d86ce3 $45df5c75 $dcd60dcf $abd13d59
+.dd $26d930ac $51de003a $c8d75180 $bfd06116 $21b4f4b5 $56b3c423 $cfba9599 $b8bda50f
+.dd $2802b89e $5f058808 $c60cd9b2 $b10be924 $2f6f7c87 $58684c11 $c1611dab $b6662d3d
+.dd $76dc4190 $01db7106 $98d220bc $efd5102a $71b18589 $06b6b51f $9fbfe4a5 $e8b8d433
+.dd $7807c9a2 $0f00f934 $9609a88e $e10e9818 $7f6a0dbb $086d3d2d $91646c97 $e6635c01
+.dd $6b6b51f4 $1c6c6162 $856530d8 $f262004e $6c0695ed $1b01a57b $8208f4c1 $f50fc457
+.dd $65b0d9c6 $12b7e950 $8bbeb8ea $fcb9887c $62dd1ddf $15da2d49 $8cd37cf3 $fbd44c65
+.dd $4db26158 $3ab551ce $a3bc0074 $d4bb30e2 $4adfa541 $3dd895d7 $a4d1c46d $d3d6f4fb
+.dd $4369e96a $346ed9fc $ad678846 $da60b8d0 $44042d73 $33031de5 $aa0a4c5f $dd0d7cc9
+.dd $5005713c $270241aa $be0b1010 $c90c2086 $5768b525 $206f85b3 $b966d409 $ce61e49f
+.dd $5edef90e $29d9c998 $b0d09822 $c7d7a8b4 $59b33d17 $2eb40d81 $b7bd5c3b $c0ba6cad
+.dd $edb88320 $9abfb3b6 $03b6e20c $74b1d29a $ead54739 $9dd277af $04db2615 $73dc1683
+.dd $e3630b12 $94643b84 $0d6d6a3e $7a6a5aa8 $e40ecf0b $9309ff9d $0a00ae27 $7d079eb1
+.dd $f00f9344 $8708a3d2 $1e01f268 $6906c2fe $f762575d $806567cb $196c3671 $6e6b06e7
+.dd $fed41b76 $89d32be0 $10da7a5a $67dd4acc $f9b9df6f $8ebeeff9 $17b7be43 $60b08ed5
+.dd $d6d6a3e8 $a1d1937e $38d8c2c4 $4fdff252 $d1bb67f1 $a6bc5767 $3fb506dd $48b2364b
+.dd $d80d2bda $af0a1b4c $36034af6 $41047a60 $df60efc3 $a867df55 $316e8eef $4669be79
+.dd $cb61b38c $bc66831a $256fd2a0 $5268e236 $cc0c7795 $bb0b4703 $220216b9 $5505262f
+.dd $c5ba3bbe $b2bd0b28 $2bb45a92 $5cb36a04 $c2d7ffa7 $b5d0cf31 $2cd99e8b $5bdeae1d
+.dd $9b64c2b0 $ec63f226 $756aa39c $026d930a $9c0906a9 $eb0e363f $72076785 $05005713
+.dd $95bf4a82 $e2b87a14 $7bb12bae $0cb61b38 $92d28e9b $e5d5be0d $7cdcefb7 $0bdbdf21
+.dd $86d3d2d4 $f1d4e242 $68ddb3f8 $1fda836e $81be16cd $f6b9265b $6fb077e1 $18b74777
+.dd $88085ae6 $ff0f6a70 $66063bca $11010b5c $8f659eff $f862ae69 $616bffd3 $166ccf45
+.dd $a00ae278 $d70dd2ee $4e048354 $3903b3c2 $a7672661 $d06016f7 $4969474d $3e6e77db
+.dd $aed16a4a $d9d65adc $40df0b66 $37d83bf0 $a9bcae53 $debb9ec5 $47b2cf7f $30b5ffe9
+.dd $bdbdf21c $cabac28a $53b39330 $24b4a3a6 $bad03605 $cdd70693 $54de5729 $23d967bf
+.dd $b3667a2e $c4614ab8 $5d681b02 $2a6f2b94 $b40bbe37 $c30c8ea1 $5a05df1b $2d02ef8d
 .ends
 
 ; We fill with random data for CRCing
