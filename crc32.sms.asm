@@ -14,7 +14,7 @@ banks 3
 ;.sdsctag 1.0, "CRC32 test", "Test-bed for CRC32 algorithm optimisation", "Maxim"
 
 .enum $c000
-  RAM_CRC dsb 4 ; Stored as big-endian...
+  RAM_CRC dd ; Stored as big-endian...
 .ende
 
 .bank 0 slot 0
@@ -33,14 +33,14 @@ crc32:
 
   ; init to $ffffffff
   exx
-    ld hl, RAM_CRC
+    ld hl, RAM_CRC+3
     ld a, $ff
     ld (hl), a
-    inc hl
+    dec hl
     ld (hl), a
-    inc hl
+    dec hl
     ld (hl), a
-    inc hl
+    dec hl
     ld (hl), a
   exx
   
@@ -68,7 +68,7 @@ _bytes_in_bank_loop:
       add hl, hl ; use result as index into table of 4 byte entries
       add hl, hl
       ex de, hl
-        ld hl, CRCLookupTable
+        ld hl, CRCLookupTable+3 ; to point to LSB
         add hl, de ; point to selected entry in CRCLookupTable
       ex de, hl
 
@@ -76,28 +76,28 @@ _bytes_in_bank_loop:
       ; llmmnnoo ; looked up value
       ; 00aabbcc ; shifted old CRC
       ; AABBCCDD ; new CRC is the byte-wise XOR
-      ld hl, RAM_CRC ; point at dest byte
+      ld hl, RAM_CRC+3 ; point at dest byte
       
       ld a, (de) ; byte 1
       ; no xor for first byte
       ld b, (hl) ; save old value for next byte
       ld (hl), a
-      inc de
-      inc hl
+      dec de
+      dec hl
       
       ld a, (de) ; byte 2
       xor b
       ld b, (hl)
       ld (hl), a
-      inc de
-      inc hl
+      dec de
+      dec hl
 
       ld a, (de) ; byte 3
       xor b
       ld b, (hl)
       ld (hl), a
-      inc de
-      inc hl
+      dec de
+      dec hl
 
       ld a, (de) ; byte 4
       xor b
@@ -137,7 +137,8 @@ _bytes_in_bank_loop:
 CRCLookupTable:
 .macro CRC
   ; Big-endian storage
-  .db (\1>>24)&$ff, (\1>>16)&$ff, (\1>>8)&$ff, \1&$ff
+  ;.db (\1>>24)&$ff, (\1>>16)&$ff, (\1>>8)&$ff, \1&$ff
+  .dd \1
 .endm
   CRC $00000000
   CRC $77073096
