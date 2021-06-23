@@ -11,12 +11,18 @@ banksize $4000
 banks 3
 .endro
 
+; LUT is derived from the code in ZEXALL but somewhat optimised.
 ; With UNROLL:    225.2 cycles per data byte, 2549 bytes code, 1024 bytes table = 32.98s for 512KB
 ; Without UNROLL: 239.1 cycles per data byte,   97 bytes code, 1024 bytes table = 35.02s for 512KB
-.define UNROLL
 ; CODEGEN makes us generate code for each LUT entry instead of being data-driven.
 ;                 179.7 cycles per data byte, 4897 bytes code,  512 bytes table = 26.31s for 512KB
+; ASYNCHRONOUS is from https://www.smspower.org/forums/18523-BitBangingAndCartridgeDumping
+; and has a bunch of good optimisations that I will steal for LUT...
+; - Keep the state in alternate registers
+; - Align the table
+; - Swap the counter bytes so djnz is on the inside
 .define ALGORITHM "ASYNCHRONOUS"
+.define UNROLL
 
 .enum $c000
   RAM_CRC dd ; Stored as big-endian...
@@ -616,7 +622,7 @@ CRC32_Loop:
       DEC C      
       JR NZ,CRC32_Loop
       EXX                        ;the (almost) final CRC32 is in BC',DE'
-    POP HL                     
+    POP HL ; restore the CRC pointer to push state back to RAM
     LD (HL),C
     INC HL
     LD (HL),B
@@ -638,7 +644,7 @@ CRC32_Finalise:
       LD B,4
 CRC32_Finalise_Loop:
       LD A,(DE)
-      XOR $FF
+      cpl
       LD (DE),A
       INC DE
       DJNZ CRC32_Finalise_Loop
