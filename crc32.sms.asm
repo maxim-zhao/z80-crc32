@@ -12,16 +12,16 @@ banks 3
 .endro
 
 ; LUT is derived from the code in ZEXALL but somewhat optimised.
-; With UNROLL:    225.2 cycles per data byte, 2549 bytes code, 1024 bytes table = 32.98s for 512KB
-; Without UNROLL: 239.1 cycles per data byte,   97 bytes code, 1024 bytes table = 35.02s for 512KB
+; With UNROLL:    128.2 cycles per data byte, 1517 bytes code, 1024 bytes table = 18.78s for 512KB
+; Without UNROLL: 141.0 cycles per data byte,   72 bytes code, 1024 bytes table = 20.66s for 512KB
 ; CODEGEN makes us generate code for each LUT entry instead of being data-driven.
 ;                 179.7 cycles per data byte, 4897 bytes code,  512 bytes table = 26.31s for 512KB
 ; ASYNCHRONOUS is from https://www.smspower.org/forums/18523-BitBangingAndCartridgeDumping
-; and has a bunch of good optimisations that I will steal for LUT...
+; and has a bunch of good optimisations that stole for LUT...
 ; - Keep the state in alternate registers
 ; - Align the table
 ; - Swap the counter bytes so djnz is on the inside
-.define ALGORITHM "ASYNCHRONOUS"
+.define ALGORITHM "LUT"
 .define UNROLL
 
 .enum $c000
@@ -42,15 +42,10 @@ banks 3
 
   ; init to $ffffffff
   exx
-    ld hl, RAM_CRC+3
-    ld a, $ff
-    ld (hl), a
-    dec hl
-    ld (hl), a
-    dec hl
-    ld (hl), a
-    dec hl
-    ld (hl), a
+    ld d,$ff
+    ld e,d
+    ld b,d
+    ld c,d
   exx
   
   ld de, $4000 ; Initial address
@@ -64,7 +59,8 @@ _bank_loop:
 .define UNROLL_COUNT 16*1024/256
     ld b, 0 ; to get 256 loops
 .else
-    ld bc, 16*1024
+    ld b, <(16*1024)
+    ld c, >(16*1024)
 .endif
     
 _bytes_in_bank_loop:
@@ -77,47 +73,33 @@ _bytes_in_bank_loop:
     
     exx
       ; Lookup index = (low byte of crc) xor (new byte)
-      ; hl is already pointing at the low byte of the crc
-      xor (hl) ; xor with new byte
+      xor c ; xor with new byte
       ld l, a
-      ld h, 0
+      ld h, >CRCLookupTable >> 2
       add hl, hl ; use result as index into table of 4 byte entries
       add hl, hl
-      ex de, hl
-        ld hl, CRCLookupTable+3 ; to point to LSB
-        add hl, de ; point to selected entry in CRCLookupTable
-      ex de, hl
 
       ; New CRC = ((old CRC) >> 8) xor (pointed data)
       ; llmmnnoo ; looked up value
       ; 00aabbcc ; shifted old CRC
       ; AABBCCDD ; new CRC is the byte-wise XOR
-      ld hl, RAM_CRC+3 ; point at dest byte
       
-      ld a, (de) ; byte 1
-      ; no xor for first byte
-      ld b, (hl) ; save old value for next byte
-      ld (hl), a
-      dec de
-      dec hl
+      ld a, b
+      xor (hl)
+      inc hl
+      ld c, a
       
-      ld a, (de) ; byte 2
-      xor b
-      ld b, (hl)
-      ld (hl), a
-      dec de
-      dec hl
-
-      ld a, (de) ; byte 3
-      xor b
-      ld b, (hl)
-      ld (hl), a
-      dec de
-      dec hl
-
-      ld a, (de) ; byte 4
-      xor b
-      ld (hl), a
+      ld a, e
+      xor (hl)
+      inc hl
+      ld b, a
+      
+      ld a, d
+      xor (hl)
+      inc hl
+      ld e, a
+      
+      ld d,(hl)
     exx
 
 .ifdef UNROLL
@@ -125,9 +107,8 @@ _bytes_in_bank_loop:
     dec b
     jp nz, _bytes_in_bank_loop
 .else
+    djnz _bytes_in_bank_loop
     dec c
-    jp nz, _bytes_in_bank_loop
-    dec b
     jp nz, _bytes_in_bank_loop
 .endif
   pop bc
@@ -136,25 +117,28 @@ _bytes_in_bank_loop:
   jp nz, _bank_loop
   
   ; Invert all bits when done
-  ld hl, RAM_CRC
-  ld a, (hl)
-  cpl
-  ld (hl), a
-  inc hl
-  ld a, (hl)
-  cpl
-  ld (hl), a
-  inc hl
-  ld a, (hl)
-  cpl
-  ld (hl), a
-  inc hl
-  ld a, (hl)
-  cpl
-  ld (hl), a
-  
+  exx
+    ld hl, RAM_CRC
+    ld a, c
+    cpl
+    ld (hl), a
+    inc hl
+    ld a, b
+    cpl
+    ld (hl), a
+    inc hl
+    ld a, e
+    cpl
+    ld (hl), a
+    inc hl
+    ld a, d
+    cpl
+    ld (hl), a
+  exx
   ret ; to end the test
+.ends
 
+.section "CRC table" align 1024
 CRCLookupTable:
 .dd $00000000 $77073096 $ee0e612c $990951ba $076dc419 $706af48f $e963a535 $9e6495a3
 .dd $0edb8832 $79dcb8a4 $e0d5e91e $97d2d988 $09b64c2b $7eb17cbd $e7b82d07 $90bf1d91
@@ -202,7 +186,7 @@ CRCLookupTable:
     ld bc, $4000 ; Initial address
   exx
 
-  ld bc, $8000 ; byte count
+  ld bc, $0080 ; byte count, byte-swapped
 
   ; read a byte
 --:
@@ -224,12 +208,12 @@ CRCLookupTable:
   inc hl
   ld h, (hl)
   ld l, a
-  ld pc, hl
+  jp (hl)
 -:
   ; Code will resume here:
-  dec c ; This pattern only works when the initial value of c is 0
-  jp nz,--
   djnz --
+  dec c
+  jp nz,--
 
   ; Put in memory while inverting
   exx
