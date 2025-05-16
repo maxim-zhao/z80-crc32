@@ -192,11 +192,10 @@ CRCLookupTable:
 .endif
 
 .if ALGORITHM == "CODEGEN"
-.section "CRC32 optimised more" force
+.section "Code-generated for each byte" force
   exx
     ; init dehl to $ffff
-    ld d,$ff
-    ld e,d
+    ld de,$ffff
     ld h,d
     ld l,d
     ld bc, $4000 ; Initial address
@@ -244,9 +243,6 @@ CodeGenResume:
     cpl
     ld (RAM_CRC+3), a
   ret
-  
-CallHL:
-  jp (hl)
 .ends
 
 .section "Pointer table" align 512
@@ -705,7 +701,6 @@ CRCLookupTable:
   exx
 
   ld de, $4000 ; Initial address
-  
   
 _bank_loop:
   push bc
