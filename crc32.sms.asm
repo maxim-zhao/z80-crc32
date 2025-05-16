@@ -11,17 +11,33 @@ banksize $4000
 banks 3
 .endro
 
+; Algorithms:
+;
+; 1. "LUT"
+;
 ; LUT is derived from the code in ZEXALL but somewhat optimised.
 ; With UNROLL:    128.2 cycles per data byte, 1517 bytes code, 1024 bytes table = 18.78s for 512KB
 ; Without UNROLL: 141.0 cycles per data byte,   72 bytes code, 1024 bytes table = 20.66s for 512KB
+;
+; 2. "CODEGEN"
+;
 ; CODEGEN makes us generate code for each LUT entry instead of being data-driven.
 ;                 157.6 cycles per data byte, 4893 bytes code,  512 bytes table = 23.09s for 512KB
+;
+; 3. "ASYNCHRONOUS"
+;
 ; ASYNCHRONOUS is from https://www.smspower.org/forums/18523-BitBangingAndCartridgeDumping
-; and has a bunch of good optimisations that stole for LUT...
+; and has a bunch of good optimisations that I also stole for LUT...
 ; - Keep the state in alternate registers
 ; - Align the table
 ; - Swap the counter bytes so djnz is on the inside
-.define ALGORITHM "CODEGEN"
+;
+; 4. "Z80TEST"
+;
+; Taken from code at https://github.com/raxoft/z80test/blob/master/src/idea.asm. This is similar
+; to ASYNCHRONOUS.
+
+.define ALGORITHM "Z80TEST"
 .define UNROLL
 
 .enum $c000
@@ -54,7 +70,7 @@ banks 3
 _bank_loop:
   push bc
     
-    ; Unrolling 64 times mans we need to loop only 256 times to cover 16KB
+    ; Unrolling 64 times means we need to loop only 256 times to cover 16KB
 .ifdef UNROLL
 .define UNROLL_COUNT 16*1024/256
     ld b, 0 ; to get 256 loops
@@ -674,6 +690,1135 @@ CRCLookupTable:
 .dd $b3667a2e $c4614ab8 $5d681b02 $2a6f2b94 $b40bbe37 $c30c8ea1 $5a05df1b $2d02ef8d
 .ends
 
+.endif
+
+.if ALGORITHM == "Z80TEST"
+.section "Z80Test version" force
+  ; Set page count
+  ld b, 2
+
+  ; Init CRC state in shadow regs
+  exx
+    ld bc, $ffff
+    ld d, b
+    ld e, c
+  exx
+
+  ld de, $4000 ; Initial address
+  
+  
+_bank_loop:
+  push bc
+    
+    ; Unrolling 64 times means we need to loop only 256 times to cover 16KB
+.ifdef UNROLL
+.define UNROLL_COUNT 16*1024/256
+    ld b, 0 ; to get 256 loops
+.else
+    ld b, <(16*1024)
+    ld c, >(16*1024)
+.endif
+    
+_bytes_in_bank_loop:
+
+.ifdef UNROLL
+.repeat UNROLL_COUNT
+.endif
+    ld a, (de)
+    inc de
+
+    ; CRC update.
+    exx
+      xor e
+
+      ld l, a
+      ld h, >crctable
+
+      ld a, (hl)
+      xor d
+      ld e, a
+      inc h
+
+      ld a, (hl)
+      xor c
+      ld d, a
+      inc h
+
+      ld a, (hl)
+      xor b
+      ld c, a
+      inc h
+
+      ld b, (hl)
+    exx
+
+.ifdef UNROLL
+.endr
+    dec b
+    jp nz, _bytes_in_bank_loop
+.else
+    djnz _bytes_in_bank_loop
+    dec c
+    jp nz, _bytes_in_bank_loop
+.endif
+  pop bc
+
+  dec b
+  jp nz, _bank_loop
+
+  ; Invert all bits when done
+  exx
+    ld hl, RAM_CRC
+    ld a, e
+    cpl
+    ld (hl), a
+    inc hl
+    ld a, d
+    cpl
+    ld (hl), a
+    inc hl
+    ld a, c
+    cpl
+    ld (hl), a
+    inc hl
+    ld a, b
+    cpl
+    ld (hl), a
+  exx
+  ret ; to end the test
+
+.ends
+
+.section "CRC table" align 256  
+crctable:
+.db $00 ; 00 00000000
+.db $96 ; 01 77073096
+.db $2c ; 02 ee0e612c
+.db $ba ; 03 990951ba
+.db $19 ; 04 076dc419
+.db $8f ; 05 706af48f
+.db $35 ; 06 e963a535
+.db $a3 ; 07 9e6495a3
+.db $32 ; 08 0edb8832
+.db $a4 ; 09 79dcb8a4
+.db $1e ; 0a e0d5e91e
+.db $88 ; 0b 97d2d988
+.db $2b ; 0c 09b64c2b
+.db $bd ; 0d 7eb17cbd
+.db $07 ; 0e e7b82d07
+.db $91 ; 0f 90bf1d91
+.db $64 ; 10 1db71064
+.db $f2 ; 11 6ab020f2
+.db $48 ; 12 f3b97148
+.db $de ; 13 84be41de
+.db $7d ; 14 1adad47d
+.db $eb ; 15 6ddde4eb
+.db $51 ; 16 f4d4b551
+.db $c7 ; 17 83d385c7
+.db $56 ; 18 136c9856
+.db $c0 ; 19 646ba8c0
+.db $7a ; 1a fd62f97a
+.db $ec ; 1b 8a65c9ec
+.db $4f ; 1c 14015c4f
+.db $d9 ; 1d 63066cd9
+.db $63 ; 1e fa0f3d63
+.db $f5 ; 1f 8d080df5
+.db $c8 ; 20 3b6e20c8
+.db $5e ; 21 4c69105e
+.db $e4 ; 22 d56041e4
+.db $72 ; 23 a2677172
+.db $d1 ; 24 3c03e4d1
+.db $47 ; 25 4b04d447
+.db $fd ; 26 d20d85fd
+.db $6b ; 27 a50ab56b
+.db $fa ; 28 35b5a8fa
+.db $6c ; 29 42b2986c
+.db $d6 ; 2a.dbbbc9d6
+.db $40 ; 2b acbcf940
+.db $e3 ; 2c 32d86ce3
+.db $75 ; 2d 45df5c75
+.db $cf ; 2e dcd60dcf
+.db $59 ; 2f abd13d59
+.db $ac ; 30 26d930ac
+.db $3a ; 31 51de003a
+.db $80 ; 32 c8d75180
+.db $16 ; 33 bfd06116
+.db $b5 ; 34 21b4f4b5
+.db $23 ; 35 56b3c423
+.db $99 ; 36 cfba9599
+.db $0f ; 37 b8bda50f
+.db $9e ; 38 2802b89e
+.db $08 ; 39 5f058808
+.db $b2 ; 3a c60cd9b2
+.db $24 ; 3b b10be924
+.db $87 ; 3c 2f6f7c87
+.db $11 ; 3d 58684c11
+.db $ab ; 3e c1611dab
+.db $3d ; 3f b6662d3d
+.db $90 ; 40 76dc4190
+.db $06 ; 41 01db7106
+.db $bc ; 42 98d220bc
+.db $2a ; 43 efd5102a
+.db $89 ; 44 71b18589
+.db $1f ; 45 06b6b51f
+.db $a5 ; 46 9fbfe4a5
+.db $33 ; 47 e8b8d433
+.db $a2 ; 48 7807c9a2
+.db $34 ; 49 0f00f934
+.db $8e ; 4a 9609a88e
+.db $18 ; 4b e10e9818
+.db $bb ; 4c 7f6a0dbb
+.db $2d ; 4d 086d3d2d
+.db $97 ; 4e 91646c97
+.db $01 ; 4f e6635c01
+.db $f4 ; 50 6b6b51f4
+.db $62 ; 51 1c6c6162
+.db $d8 ; 52 856530d8
+.db $4e ; 53 f262004e
+.db $ed ; 54 6c0695ed
+.db $7b ; 55 1b01a57b
+.db $c1 ; 56 8208f4c1
+.db $57 ; 57 f50fc457
+.db $c6 ; 58 65b0d9c6
+.db $50 ; 59 12b7e950
+.db $ea ; 5a 8bbeb8ea
+.db $7c ; 5b fcb9887c
+.db $df ; 5c 62dd1ddf
+.db $49 ; 5d 15da2d49
+.db $f3 ; 5e 8cd37cf3
+.db $65 ; 5f fbd44c65
+.db $58 ; 60 4db26158
+.db $ce ; 61 3ab551ce
+.db $74 ; 62 a3bc0074
+.db $e2 ; 63 d4bb30e2
+.db $41 ; 64 4adfa541
+.db $d7 ; 65 3dd895d7
+.db $6d ; 66 a4d1c46d
+.db $fb ; 67 d3d6f4fb
+.db $6a ; 68 4369e96a
+.db $fc ; 69 346ed9fc
+.db $46 ; 6a ad678846
+.db $d0 ; 6b da60b8d0
+.db $73 ; 6c 44042d73
+.db $e5 ; 6d 33031de5
+.db $5f ; 6e aa0a4c5f
+.db $c9 ; 6f dd0d7cc9
+.db $3c ; 70 5005713c
+.db $aa ; 71 270241aa
+.db $10 ; 72 be0b1010
+.db $86 ; 73 c90c2086
+.db $25 ; 74 5768b525
+.db $b3 ; 75 206f85b3
+.db $09 ; 76 b966d409
+.db $9f ; 77 ce61e49f
+.db $0e ; 78 5edef90e
+.db $98 ; 79 29d9c998
+.db $22 ; 7a b0d09822
+.db $b4 ; 7b c7d7a8b4
+.db $17 ; 7c 59b33d17
+.db $81 ; 7d 2eb40d81
+.db $3b ; 7e b7bd5c3b
+.db $ad ; 7f c0ba6cad
+.db $20 ; 80 edb88320
+.db $b6 ; 81 9abfb3b6
+.db $0c ; 82 03b6e20c
+.db $9a ; 83 74b1d29a
+.db $39 ; 84 ead54739
+.db $af ; 85 9dd277af
+.db $15 ; 86 04db2615
+.db $83 ; 87 73dc1683
+.db $12 ; 88 e3630b12
+.db $84 ; 89 94643b84
+.db $3e ; 8a 0d6d6a3e
+.db $a8 ; 8b 7a6a5aa8
+.db $0b ; 8c e40ecf0b
+.db $9d ; 8d 9309ff9d
+.db $27 ; 8e 0a00ae27
+.db $b1 ; 8f 7d079eb1
+.db $44 ; 90 f00f9344
+.db $d2 ; 91 8708a3d2
+.db $68 ; 92 1e01f268
+.db $fe ; 93 6906c2fe
+.db $5d ; 94 f762575d
+.db $cb ; 95 806567cb
+.db $71 ; 96 196c3671
+.db $e7 ; 97 6e6b06e7
+.db $76 ; 98 fed41b76
+.db $e0 ; 99 89d32be0
+.db $5a ; 9a 10da7a5a
+.db $cc ; 9b 67dd4acc
+.db $6f ; 9c f9b9df6f
+.db $f9 ; 9d 8ebeeff9
+.db $43 ; 9e 17b7be43
+.db $d5 ; 9f 60b08ed5
+.db $e8 ; a0 d6d6a3e8
+.db $7e ; a1 a1d1937e
+.db $c4 ; a2 38d8c2c4
+.db $52 ; a3 4fdff252
+.db $f1 ; a4 d1bb67f1
+.db $67 ; a5 a6bc5767
+.db $dd ; a6 3fb506dd
+.db $4b ; a7 48b2364b
+.db $da ; a8 d80d2bda
+.db $4c ; a9 af0a1b4c
+.db $f6 ; aa 36034af6
+.db $60 ; ab 41047a60
+.db $c3 ; ac df60efc3
+.db $55 ; ad a867df55
+.db $ef ; ae 316e8eef
+.db $79 ; af 4669be79
+.db $8c ; b0 cb61b38c
+.db $1a ; b1 bc66831a
+.db $a0 ; b2 256fd2a0
+.db $36 ; b3 5268e236
+.db $95 ; b4 cc0c7795
+.db $03 ; b5 bb0b4703
+.db $b9 ; b6 220216b9
+.db $2f ; b7 5505262f
+.db $be ; b8 c5ba3bbe
+.db $28 ; b9 b2bd0b28
+.db $92 ; ba 2bb45a92
+.db $04 ; bb 5cb36a04
+.db $a7 ; bc c2d7ffa7
+.db $31 ; bd b5d0cf31
+.db $8b ; be 2cd99e8b
+.db $1d ; bf 5bdeae1d
+.db $b0 ; c0 9b64c2b0
+.db $26 ; c1 ec63f226
+.db $9c ; c2 756aa39c
+.db $0a ; c3 026d930a
+.db $a9 ; c4 9c0906a9
+.db $3f ; c5 eb0e363f
+.db $85 ; c6 72076785
+.db $13 ; c7 05005713
+.db $82 ; c8 95bf4a82
+.db $14 ; c9 e2b87a14
+.db $ae ; ca 7bb12bae
+.db $38 ; cb 0cb61b38
+.db $9b ; cc 92d28e9b
+.db $0d ; cd e5d5be0d
+.db $b7 ; ce 7cdcefb7
+.db $21 ; cf 0bdbdf21
+.db $d4 ; d0 86d3d2d4
+.db $42 ; d1 f1d4e242
+.db $f8 ; d2 68ddb3f8
+.db $6e ; d3 1fda836e
+.db $cd ; d4 81be16cd
+.db $5b ; d5 f6b9265b
+.db $e1 ; d6 6fb077e1
+.db $77 ; d7 18b74777
+.db $e6 ; d8 88085ae6
+.db $70 ; d9 ff0f6a70
+.db $ca ; da 66063bca
+.db $5c ;.db 11010b5c
+.db $ff ; dc 8f659eff
+.db $69 ; dd f862ae69
+.db $d3 ; de 616bffd3
+.db $45 ; df 166ccf45
+.db $78 ; e0 a00ae278
+.db $ee ; e1 d70dd2ee
+.db $54 ; e2 4e048354
+.db $c2 ; e3 3903b3c2
+.db $61 ; e4 a7672661
+.db $f7 ; e5 d06016f7
+.db $4d ; e6 4969474d
+.db $db ; e7 3e6e77db
+.db $4a ; e8 aed16a4a
+.db $dc ; e9 d9d65adc
+.db $66 ; ea 40df0b66
+.db $f0 ; eb 37d83bf0
+.db $53 ; ec a9bcae53
+.db $c5 ; ed debb9ec5
+.db $7f ; ee 47b2cf7f
+.db $e9 ; ef 30b5ffe9
+.db $1c ; f0 bdbdf21c
+.db $8a ; f1 cabac28a
+.db $30 ; f2 53b39330
+.db $a6 ; f3 24b4a3a6
+.db $05 ; f4 bad03605
+.db $93 ; f5 cdd70693
+.db $29 ; f6 54de5729
+.db $bf ; f7 23d967bf
+.db $2e ; f8 b3667a2e
+.db $b8 ; f9 c4614ab8
+.db $02 ; fa 5d681b02
+.db $94 ; fb 2a6f2b94
+.db $37 ; fc b40bbe37
+.db $a1 ; fd c30c8ea1
+.db $1b ; fe 5a05df1b
+.db $8d ; ff 2d02ef8d
+
+.db $00 ; 00 00000000
+.db $30 ; 01 77073096
+.db $61 ; 02 ee0e612c
+.db $51 ; 03 990951ba
+.db $c4 ; 04 076dc419
+.db $f4 ; 05 706af48f
+.db $a5 ; 06 e963a535
+.db $95 ; 07 9e6495a3
+.db $88 ; 08 0edb8832
+.db $b8 ; 09 79dcb8a4
+.db $e9 ; 0a e0d5e91e
+.db $d9 ; 0b 97d2d988
+.db $4c ; 0c 09b64c2b
+.db $7c ; 0d 7eb17cbd
+.db $2d ; 0e e7b82d07
+.db $1d ; 0f 90bf1d91
+.db $10 ; 10 1db71064
+.db $20 ; 11 6ab020f2
+.db $71 ; 12 f3b97148
+.db $41 ; 13 84be41de
+.db $d4 ; 14 1adad47d
+.db $e4 ; 15 6ddde4eb
+.db $b5 ; 16 f4d4b551
+.db $85 ; 17 83d385c7
+.db $98 ; 18 136c9856
+.db $a8 ; 19 646ba8c0
+.db $f9 ; 1a fd62f97a
+.db $c9 ; 1b 8a65c9ec
+.db $5c ; 1c 14015c4f
+.db $6c ; 1d 63066cd9
+.db $3d ; 1e fa0f3d63
+.db $0d ; 1f 8d080df5
+.db $20 ; 20 3b6e20c8
+.db $10 ; 21 4c69105e
+.db $41 ; 22 d56041e4
+.db $71 ; 23 a2677172
+.db $e4 ; 24 3c03e4d1
+.db $d4 ; 25 4b04d447
+.db $85 ; 26 d20d85fd
+.db $b5 ; 27 a50ab56b
+.db $a8 ; 28 35b5a8fa
+.db $98 ; 29 42b2986c
+.db $c9 ; 2a.dbbbc9d6
+.db $f9 ; 2b acbcf940
+.db $6c ; 2c 32d86ce3
+.db $5c ; 2d 45df5c75
+.db $0d ; 2e dcd60dcf
+.db $3d ; 2f abd13d59
+.db $30 ; 30 26d930ac
+.db $00 ; 31 51de003a
+.db $51 ; 32 c8d75180
+.db $61 ; 33 bfd06116
+.db $f4 ; 34 21b4f4b5
+.db $c4 ; 35 56b3c423
+.db $95 ; 36 cfba9599
+.db $a5 ; 37 b8bda50f
+.db $b8 ; 38 2802b89e
+.db $88 ; 39 5f058808
+.db $d9 ; 3a c60cd9b2
+.db $e9 ; 3b b10be924
+.db $7c ; 3c 2f6f7c87
+.db $4c ; 3d 58684c11
+.db $1d ; 3e c1611dab
+.db $2d ; 3f b6662d3d
+.db $41 ; 40 76dc4190
+.db $71 ; 41 01db7106
+.db $20 ; 42 98d220bc
+.db $10 ; 43 efd5102a
+.db $85 ; 44 71b18589
+.db $b5 ; 45 06b6b51f
+.db $e4 ; 46 9fbfe4a5
+.db $d4 ; 47 e8b8d433
+.db $c9 ; 48 7807c9a2
+.db $f9 ; 49 0f00f934
+.db $a8 ; 4a 9609a88e
+.db $98 ; 4b e10e9818
+.db $0d ; 4c 7f6a0dbb
+.db $3d ; 4d 086d3d2d
+.db $6c ; 4e 91646c97
+.db $5c ; 4f e6635c01
+.db $51 ; 50 6b6b51f4
+.db $61 ; 51 1c6c6162
+.db $30 ; 52 856530d8
+.db $00 ; 53 f262004e
+.db $95 ; 54 6c0695ed
+.db $a5 ; 55 1b01a57b
+.db $f4 ; 56 8208f4c1
+.db $c4 ; 57 f50fc457
+.db $d9 ; 58 65b0d9c6
+.db $e9 ; 59 12b7e950
+.db $b8 ; 5a 8bbeb8ea
+.db $88 ; 5b fcb9887c
+.db $1d ; 5c 62dd1ddf
+.db $2d ; 5d 15da2d49
+.db $7c ; 5e 8cd37cf3
+.db $4c ; 5f fbd44c65
+.db $61 ; 60 4db26158
+.db $51 ; 61 3ab551ce
+.db $00 ; 62 a3bc0074
+.db $30 ; 63 d4bb30e2
+.db $a5 ; 64 4adfa541
+.db $95 ; 65 3dd895d7
+.db $c4 ; 66 a4d1c46d
+.db $f4 ; 67 d3d6f4fb
+.db $e9 ; 68 4369e96a
+.db $d9 ; 69 346ed9fc
+.db $88 ; 6a ad678846
+.db $b8 ; 6b da60b8d0
+.db $2d ; 6c 44042d73
+.db $1d ; 6d 33031de5
+.db $4c ; 6e aa0a4c5f
+.db $7c ; 6f dd0d7cc9
+.db $71 ; 70 5005713c
+.db $41 ; 71 270241aa
+.db $10 ; 72 be0b1010
+.db $20 ; 73 c90c2086
+.db $b5 ; 74 5768b525
+.db $85 ; 75 206f85b3
+.db $d4 ; 76 b966d409
+.db $e4 ; 77 ce61e49f
+.db $f9 ; 78 5edef90e
+.db $c9 ; 79 29d9c998
+.db $98 ; 7a b0d09822
+.db $a8 ; 7b c7d7a8b4
+.db $3d ; 7c 59b33d17
+.db $0d ; 7d 2eb40d81
+.db $5c ; 7e b7bd5c3b
+.db $6c ; 7f c0ba6cad
+.db $83 ; 80 edb88320
+.db $b3 ; 81 9abfb3b6
+.db $e2 ; 82 03b6e20c
+.db $d2 ; 83 74b1d29a
+.db $47 ; 84 ead54739
+.db $77 ; 85 9dd277af
+.db $26 ; 86 04db2615
+.db $16 ; 87 73dc1683
+.db $0b ; 88 e3630b12
+.db $3b ; 89 94643b84
+.db $6a ; 8a 0d6d6a3e
+.db $5a ; 8b 7a6a5aa8
+.db $cf ; 8c e40ecf0b
+.db $ff ; 8d 9309ff9d
+.db $ae ; 8e 0a00ae27
+.db $9e ; 8f 7d079eb1
+.db $93 ; 90 f00f9344
+.db $a3 ; 91 8708a3d2
+.db $f2 ; 92 1e01f268
+.db $c2 ; 93 6906c2fe
+.db $57 ; 94 f762575d
+.db $67 ; 95 806567cb
+.db $36 ; 96 196c3671
+.db $06 ; 97 6e6b06e7
+.db $1b ; 98 fed41b76
+.db $2b ; 99 89d32be0
+.db $7a ; 9a 10da7a5a
+.db $4a ; 9b 67dd4acc
+.db $df ; 9c f9b9df6f
+.db $ef ; 9d 8ebeeff9
+.db $be ; 9e 17b7be43
+.db $8e ; 9f 60b08ed5
+.db $a3 ; a0 d6d6a3e8
+.db $93 ; a1 a1d1937e
+.db $c2 ; a2 38d8c2c4
+.db $f2 ; a3 4fdff252
+.db $67 ; a4 d1bb67f1
+.db $57 ; a5 a6bc5767
+.db $06 ; a6 3fb506dd
+.db $36 ; a7 48b2364b
+.db $2b ; a8 d80d2bda
+.db $1b ; a9 af0a1b4c
+.db $4a ; aa 36034af6
+.db $7a ; ab 41047a60
+.db $ef ; ac df60efc3
+.db $df ; ad a867df55
+.db $8e ; ae 316e8eef
+.db $be ; af 4669be79
+.db $b3 ; b0 cb61b38c
+.db $83 ; b1 bc66831a
+.db $d2 ; b2 256fd2a0
+.db $e2 ; b3 5268e236
+.db $77 ; b4 cc0c7795
+.db $47 ; b5 bb0b4703
+.db $16 ; b6 220216b9
+.db $26 ; b7 5505262f
+.db $3b ; b8 c5ba3bbe
+.db $0b ; b9 b2bd0b28
+.db $5a ; ba 2bb45a92
+.db $6a ; bb 5cb36a04
+.db $ff ; bc c2d7ffa7
+.db $cf ; bd b5d0cf31
+.db $9e ; be 2cd99e8b
+.db $ae ; bf 5bdeae1d
+.db $c2 ; c0 9b64c2b0
+.db $f2 ; c1 ec63f226
+.db $a3 ; c2 756aa39c
+.db $93 ; c3 026d930a
+.db $06 ; c4 9c0906a9
+.db $36 ; c5 eb0e363f
+.db $67 ; c6 72076785
+.db $57 ; c7 05005713
+.db $4a ; c8 95bf4a82
+.db $7a ; c9 e2b87a14
+.db $2b ; ca 7bb12bae
+.db $1b ; cb 0cb61b38
+.db $8e ; cc 92d28e9b
+.db $be ; cd e5d5be0d
+.db $ef ; ce 7cdcefb7
+.db $df ; cf 0bdbdf21
+.db $d2 ; d0 86d3d2d4
+.db $e2 ; d1 f1d4e242
+.db $b3 ; d2 68ddb3f8
+.db $83 ; d3 1fda836e
+.db $16 ; d4 81be16cd
+.db $26 ; d5 f6b9265b
+.db $77 ; d6 6fb077e1
+.db $47 ; d7 18b74777
+.db $5a ; d8 88085ae6
+.db $6a ; d9 ff0f6a70
+.db $3b ; da 66063bca
+.db $0b ;.db 11010b5c
+.db $9e ; dc 8f659eff
+.db $ae ; dd f862ae69
+.db $ff ; de 616bffd3
+.db $cf ; df 166ccf45
+.db $e2 ; e0 a00ae278
+.db $d2 ; e1 d70dd2ee
+.db $83 ; e2 4e048354
+.db $b3 ; e3 3903b3c2
+.db $26 ; e4 a7672661
+.db $16 ; e5 d06016f7
+.db $47 ; e6 4969474d
+.db $77 ; e7 3e6e77db
+.db $6a ; e8 aed16a4a
+.db $5a ; e9 d9d65adc
+.db $0b ; ea 40df0b66
+.db $3b ; eb 37d83bf0
+.db $ae ; ec a9bcae53
+.db $9e ; ed debb9ec5
+.db $cf ; ee 47b2cf7f
+.db $ff ; ef 30b5ffe9
+.db $f2 ; f0 bdbdf21c
+.db $c2 ; f1 cabac28a
+.db $93 ; f2 53b39330
+.db $a3 ; f3 24b4a3a6
+.db $36 ; f4 bad03605
+.db $06 ; f5 cdd70693
+.db $57 ; f6 54de5729
+.db $67 ; f7 23d967bf
+.db $7a ; f8 b3667a2e
+.db $4a ; f9 c4614ab8
+.db $1b ; fa 5d681b02
+.db $2b ; fb 2a6f2b94
+.db $be ; fc b40bbe37
+.db $8e ; fd c30c8ea1
+.db $df ; fe 5a05df1b
+.db $ef ; ff 2d02ef8d
+
+.db $00 ; 00 00000000
+.db $07 ; 01 77073096
+.db $0e ; 02 ee0e612c
+.db $09 ; 03 990951ba
+.db $6d ; 04 076dc419
+.db $6a ; 05 706af48f
+.db $63 ; 06 e963a535
+.db $64 ; 07 9e6495a3
+.db $db ; 08 0edb8832
+.db $dc ; 09 79dcb8a4
+.db $d5 ; 0a e0d5e91e
+.db $d2 ; 0b 97d2d988
+.db $b6 ; 0c 09b64c2b
+.db $b1 ; 0d 7eb17cbd
+.db $b8 ; 0e e7b82d07
+.db $bf ; 0f 90bf1d91
+.db $b7 ; 10 1db71064
+.db $b0 ; 11 6ab020f2
+.db $b9 ; 12 f3b97148
+.db $be ; 13 84be41de
+.db $da ; 14 1adad47d
+.db $dd ; 15 6ddde4eb
+.db $d4 ; 16 f4d4b551
+.db $d3 ; 17 83d385c7
+.db $6c ; 18 136c9856
+.db $6b ; 19 646ba8c0
+.db $62 ; 1a fd62f97a
+.db $65 ; 1b 8a65c9ec
+.db $01 ; 1c 14015c4f
+.db $06 ; 1d 63066cd9
+.db $0f ; 1e fa0f3d63
+.db $08 ; 1f 8d080df5
+.db $6e ; 20 3b6e20c8
+.db $69 ; 21 4c69105e
+.db $60 ; 22 d56041e4
+.db $67 ; 23 a2677172
+.db $03 ; 24 3c03e4d1
+.db $04 ; 25 4b04d447
+.db $0d ; 26 d20d85fd
+.db $0a ; 27 a50ab56b
+.db $b5 ; 28 35b5a8fa
+.db $b2 ; 29 42b2986c
+.db $bb ; 2a.dbbbc9d6
+.db $bc ; 2b acbcf940
+.db $d8 ; 2c 32d86ce3
+.db $df ; 2d 45df5c75
+.db $d6 ; 2e dcd60dcf
+.db $d1 ; 2f abd13d59
+.db $d9 ; 30 26d930ac
+.db $de ; 31 51de003a
+.db $d7 ; 32 c8d75180
+.db $d0 ; 33 bfd06116
+.db $b4 ; 34 21b4f4b5
+.db $b3 ; 35 56b3c423
+.db $ba ; 36 cfba9599
+.db $bd ; 37 b8bda50f
+.db $02 ; 38 2802b89e
+.db $05 ; 39 5f058808
+.db $0c ; 3a c60cd9b2
+.db $0b ; 3b b10be924
+.db $6f ; 3c 2f6f7c87
+.db $68 ; 3d 58684c11
+.db $61 ; 3e c1611dab
+.db $66 ; 3f b6662d3d
+.db $dc ; 40 76dc4190
+.db $db ; 41 01db7106
+.db $d2 ; 42 98d220bc
+.db $d5 ; 43 efd5102a
+.db $b1 ; 44 71b18589
+.db $b6 ; 45 06b6b51f
+.db $bf ; 46 9fbfe4a5
+.db $b8 ; 47 e8b8d433
+.db $07 ; 48 7807c9a2
+.db $00 ; 49 0f00f934
+.db $09 ; 4a 9609a88e
+.db $0e ; 4b e10e9818
+.db $6a ; 4c 7f6a0dbb
+.db $6d ; 4d 086d3d2d
+.db $64 ; 4e 91646c97
+.db $63 ; 4f e6635c01
+.db $6b ; 50 6b6b51f4
+.db $6c ; 51 1c6c6162
+.db $65 ; 52 856530d8
+.db $62 ; 53 f262004e
+.db $06 ; 54 6c0695ed
+.db $01 ; 55 1b01a57b
+.db $08 ; 56 8208f4c1
+.db $0f ; 57 f50fc457
+.db $b0 ; 58 65b0d9c6
+.db $b7 ; 59 12b7e950
+.db $be ; 5a 8bbeb8ea
+.db $b9 ; 5b fcb9887c
+.db $dd ; 5c 62dd1ddf
+.db $da ; 5d 15da2d49
+.db $d3 ; 5e 8cd37cf3
+.db $d4 ; 5f fbd44c65
+.db $b2 ; 60 4db26158
+.db $b5 ; 61 3ab551ce
+.db $bc ; 62 a3bc0074
+.db $bb ; 63 d4bb30e2
+.db $df ; 64 4adfa541
+.db $d8 ; 65 3dd895d7
+.db $d1 ; 66 a4d1c46d
+.db $d6 ; 67 d3d6f4fb
+.db $69 ; 68 4369e96a
+.db $6e ; 69 346ed9fc
+.db $67 ; 6a ad678846
+.db $60 ; 6b da60b8d0
+.db $04 ; 6c 44042d73
+.db $03 ; 6d 33031de5
+.db $0a ; 6e aa0a4c5f
+.db $0d ; 6f dd0d7cc9
+.db $05 ; 70 5005713c
+.db $02 ; 71 270241aa
+.db $0b ; 72 be0b1010
+.db $0c ; 73 c90c2086
+.db $68 ; 74 5768b525
+.db $6f ; 75 206f85b3
+.db $66 ; 76 b966d409
+.db $61 ; 77 ce61e49f
+.db $de ; 78 5edef90e
+.db $d9 ; 79 29d9c998
+.db $d0 ; 7a b0d09822
+.db $d7 ; 7b c7d7a8b4
+.db $b3 ; 7c 59b33d17
+.db $b4 ; 7d 2eb40d81
+.db $bd ; 7e b7bd5c3b
+.db $ba ; 7f c0ba6cad
+.db $b8 ; 80 edb88320
+.db $bf ; 81 9abfb3b6
+.db $b6 ; 82 03b6e20c
+.db $b1 ; 83 74b1d29a
+.db $d5 ; 84 ead54739
+.db $d2 ; 85 9dd277af
+.db $db ; 86 04db2615
+.db $dc ; 87 73dc1683
+.db $63 ; 88 e3630b12
+.db $64 ; 89 94643b84
+.db $6d ; 8a 0d6d6a3e
+.db $6a ; 8b 7a6a5aa8
+.db $0e ; 8c e40ecf0b
+.db $09 ; 8d 9309ff9d
+.db $00 ; 8e 0a00ae27
+.db $07 ; 8f 7d079eb1
+.db $0f ; 90 f00f9344
+.db $08 ; 91 8708a3d2
+.db $01 ; 92 1e01f268
+.db $06 ; 93 6906c2fe
+.db $62 ; 94 f762575d
+.db $65 ; 95 806567cb
+.db $6c ; 96 196c3671
+.db $6b ; 97 6e6b06e7
+.db $d4 ; 98 fed41b76
+.db $d3 ; 99 89d32be0
+.db $da ; 9a 10da7a5a
+.db $dd ; 9b 67dd4acc
+.db $b9 ; 9c f9b9df6f
+.db $be ; 9d 8ebeeff9
+.db $b7 ; 9e 17b7be43
+.db $b0 ; 9f 60b08ed5
+.db $d6 ; a0 d6d6a3e8
+.db $d1 ; a1 a1d1937e
+.db $d8 ; a2 38d8c2c4
+.db $df ; a3 4fdff252
+.db $bb ; a4 d1bb67f1
+.db $bc ; a5 a6bc5767
+.db $b5 ; a6 3fb506dd
+.db $b2 ; a7 48b2364b
+.db $0d ; a8 d80d2bda
+.db $0a ; a9 af0a1b4c
+.db $03 ; aa 36034af6
+.db $04 ; ab 41047a60
+.db $60 ; ac df60efc3
+.db $67 ; ad a867df55
+.db $6e ; ae 316e8eef
+.db $69 ; af 4669be79
+.db $61 ; b0 cb61b38c
+.db $66 ; b1 bc66831a
+.db $6f ; b2 256fd2a0
+.db $68 ; b3 5268e236
+.db $0c ; b4 cc0c7795
+.db $0b ; b5 bb0b4703
+.db $02 ; b6 220216b9
+.db $05 ; b7 5505262f
+.db $ba ; b8 c5ba3bbe
+.db $bd ; b9 b2bd0b28
+.db $b4 ; ba 2bb45a92
+.db $b3 ; bb 5cb36a04
+.db $d7 ; bc c2d7ffa7
+.db $d0 ; bd b5d0cf31
+.db $d9 ; be 2cd99e8b
+.db $de ; bf 5bdeae1d
+.db $64 ; c0 9b64c2b0
+.db $63 ; c1 ec63f226
+.db $6a ; c2 756aa39c
+.db $6d ; c3 026d930a
+.db $09 ; c4 9c0906a9
+.db $0e ; c5 eb0e363f
+.db $07 ; c6 72076785
+.db $00 ; c7 05005713
+.db $bf ; c8 95bf4a82
+.db $b8 ; c9 e2b87a14
+.db $b1 ; ca 7bb12bae
+.db $b6 ; cb 0cb61b38
+.db $d2 ; cc 92d28e9b
+.db $d5 ; cd e5d5be0d
+.db $dc ; ce 7cdcefb7
+.db $db ; cf 0bdbdf21
+.db $d3 ; d0 86d3d2d4
+.db $d4 ; d1 f1d4e242
+.db $dd ; d2 68ddb3f8
+.db $da ; d3 1fda836e
+.db $be ; d4 81be16cd
+.db $b9 ; d5 f6b9265b
+.db $b0 ; d6 6fb077e1
+.db $b7 ; d7 18b74777
+.db $08 ; d8 88085ae6
+.db $0f ; d9 ff0f6a70
+.db $06 ; da 66063bca
+.db $01 ;.db 11010b5c
+.db $65 ; dc 8f659eff
+.db $62 ; dd f862ae69
+.db $6b ; de 616bffd3
+.db $6c ; df 166ccf45
+.db $0a ; e0 a00ae278
+.db $0d ; e1 d70dd2ee
+.db $04 ; e2 4e048354
+.db $03 ; e3 3903b3c2
+.db $67 ; e4 a7672661
+.db $60 ; e5 d06016f7
+.db $69 ; e6 4969474d
+.db $6e ; e7 3e6e77db
+.db $d1 ; e8 aed16a4a
+.db $d6 ; e9 d9d65adc
+.db $df ; ea 40df0b66
+.db $d8 ; eb 37d83bf0
+.db $bc ; ec a9bcae53
+.db $bb ; ed debb9ec5
+.db $b2 ; ee 47b2cf7f
+.db $b5 ; ef 30b5ffe9
+.db $bd ; f0 bdbdf21c
+.db $ba ; f1 cabac28a
+.db $b3 ; f2 53b39330
+.db $b4 ; f3 24b4a3a6
+.db $d0 ; f4 bad03605
+.db $d7 ; f5 cdd70693
+.db $de ; f6 54de5729
+.db $d9 ; f7 23d967bf
+.db $66 ; f8 b3667a2e
+.db $61 ; f9 c4614ab8
+.db $68 ; fa 5d681b02
+.db $6f ; fb 2a6f2b94
+.db $0b ; fc b40bbe37
+.db $0c ; fd c30c8ea1
+.db $05 ; fe 5a05df1b
+.db $02 ; ff 2d02ef8d
+
+.db $00 ; 00 00000000
+.db $77 ; 01 77073096
+.db $ee ; 02 ee0e612c
+.db $99 ; 03 990951ba
+.db $07 ; 04 076dc419
+.db $70 ; 05 706af48f
+.db $e9 ; 06 e963a535
+.db $9e ; 07 9e6495a3
+.db $0e ; 08 0edb8832
+.db $79 ; 09 79dcb8a4
+.db $e0 ; 0a e0d5e91e
+.db $97 ; 0b 97d2d988
+.db $09 ; 0c 09b64c2b
+.db $7e ; 0d 7eb17cbd
+.db $e7 ; 0e e7b82d07
+.db $90 ; 0f 90bf1d91
+.db $1d ; 10 1db71064
+.db $6a ; 11 6ab020f2
+.db $f3 ; 12 f3b97148
+.db $84 ; 13 84be41de
+.db $1a ; 14 1adad47d
+.db $6d ; 15 6ddde4eb
+.db $f4 ; 16 f4d4b551
+.db $83 ; 17 83d385c7
+.db $13 ; 18 136c9856
+.db $64 ; 19 646ba8c0
+.db $fd ; 1a fd62f97a
+.db $8a ; 1b 8a65c9ec
+.db $14 ; 1c 14015c4f
+.db $63 ; 1d 63066cd9
+.db $fa ; 1e fa0f3d63
+.db $8d ; 1f 8d080df5
+.db $3b ; 20 3b6e20c8
+.db $4c ; 21 4c69105e
+.db $d5 ; 22 d56041e4
+.db $a2 ; 23 a2677172
+.db $3c ; 24 3c03e4d1
+.db $4b ; 25 4b04d447
+.db $d2 ; 26 d20d85fd
+.db $a5 ; 27 a50ab56b
+.db $35 ; 28 35b5a8fa
+.db $42 ; 29 42b2986c
+.db $db ; 2a.dbbbc9d6
+.db $ac ; 2b acbcf940
+.db $32 ; 2c 32d86ce3
+.db $45 ; 2d 45df5c75
+.db $dc ; 2e dcd60dcf
+.db $ab ; 2f abd13d59
+.db $26 ; 30 26d930ac
+.db $51 ; 31 51de003a
+.db $c8 ; 32 c8d75180
+.db $bf ; 33 bfd06116
+.db $21 ; 34 21b4f4b5
+.db $56 ; 35 56b3c423
+.db $cf ; 36 cfba9599
+.db $b8 ; 37 b8bda50f
+.db $28 ; 38 2802b89e
+.db $5f ; 39 5f058808
+.db $c6 ; 3a c60cd9b2
+.db $b1 ; 3b b10be924
+.db $2f ; 3c 2f6f7c87
+.db $58 ; 3d 58684c11
+.db $c1 ; 3e c1611dab
+.db $b6 ; 3f b6662d3d
+.db $76 ; 40 76dc4190
+.db $01 ; 41 01db7106
+.db $98 ; 42 98d220bc
+.db $ef ; 43 efd5102a
+.db $71 ; 44 71b18589
+.db $06 ; 45 06b6b51f
+.db $9f ; 46 9fbfe4a5
+.db $e8 ; 47 e8b8d433
+.db $78 ; 48 7807c9a2
+.db $0f ; 49 0f00f934
+.db $96 ; 4a 9609a88e
+.db $e1 ; 4b e10e9818
+.db $7f ; 4c 7f6a0dbb
+.db $08 ; 4d 086d3d2d
+.db $91 ; 4e 91646c97
+.db $e6 ; 4f e6635c01
+.db $6b ; 50 6b6b51f4
+.db $1c ; 51 1c6c6162
+.db $85 ; 52 856530d8
+.db $f2 ; 53 f262004e
+.db $6c ; 54 6c0695ed
+.db $1b ; 55 1b01a57b
+.db $82 ; 56 8208f4c1
+.db $f5 ; 57 f50fc457
+.db $65 ; 58 65b0d9c6
+.db $12 ; 59 12b7e950
+.db $8b ; 5a 8bbeb8ea
+.db $fc ; 5b fcb9887c
+.db $62 ; 5c 62dd1ddf
+.db $15 ; 5d 15da2d49
+.db $8c ; 5e 8cd37cf3
+.db $fb ; 5f fbd44c65
+.db $4d ; 60 4db26158
+.db $3a ; 61 3ab551ce
+.db $a3 ; 62 a3bc0074
+.db $d4 ; 63 d4bb30e2
+.db $4a ; 64 4adfa541
+.db $3d ; 65 3dd895d7
+.db $a4 ; 66 a4d1c46d
+.db $d3 ; 67 d3d6f4fb
+.db $43 ; 68 4369e96a
+.db $34 ; 69 346ed9fc
+.db $ad ; 6a ad678846
+.db $da ; 6b da60b8d0
+.db $44 ; 6c 44042d73
+.db $33 ; 6d 33031de5
+.db $aa ; 6e aa0a4c5f
+.db $dd ; 6f dd0d7cc9
+.db $50 ; 70 5005713c
+.db $27 ; 71 270241aa
+.db $be ; 72 be0b1010
+.db $c9 ; 73 c90c2086
+.db $57 ; 74 5768b525
+.db $20 ; 75 206f85b3
+.db $b9 ; 76 b966d409
+.db $ce ; 77 ce61e49f
+.db $5e ; 78 5edef90e
+.db $29 ; 79 29d9c998
+.db $b0 ; 7a b0d09822
+.db $c7 ; 7b c7d7a8b4
+.db $59 ; 7c 59b33d17
+.db $2e ; 7d 2eb40d81
+.db $b7 ; 7e b7bd5c3b
+.db $c0 ; 7f c0ba6cad
+.db $ed ; 80 edb88320
+.db $9a ; 81 9abfb3b6
+.db $03 ; 82 03b6e20c
+.db $74 ; 83 74b1d29a
+.db $ea ; 84 ead54739
+.db $9d ; 85 9dd277af
+.db $04 ; 86 04db2615
+.db $73 ; 87 73dc1683
+.db $e3 ; 88 e3630b12
+.db $94 ; 89 94643b84
+.db $0d ; 8a 0d6d6a3e
+.db $7a ; 8b 7a6a5aa8
+.db $e4 ; 8c e40ecf0b
+.db $93 ; 8d 9309ff9d
+.db $0a ; 8e 0a00ae27
+.db $7d ; 8f 7d079eb1
+.db $f0 ; 90 f00f9344
+.db $87 ; 91 8708a3d2
+.db $1e ; 92 1e01f268
+.db $69 ; 93 6906c2fe
+.db $f7 ; 94 f762575d
+.db $80 ; 95 806567cb
+.db $19 ; 96 196c3671
+.db $6e ; 97 6e6b06e7
+.db $fe ; 98 fed41b76
+.db $89 ; 99 89d32be0
+.db $10 ; 9a 10da7a5a
+.db $67 ; 9b 67dd4acc
+.db $f9 ; 9c f9b9df6f
+.db $8e ; 9d 8ebeeff9
+.db $17 ; 9e 17b7be43
+.db $60 ; 9f 60b08ed5
+.db $d6 ; a0 d6d6a3e8
+.db $a1 ; a1 a1d1937e
+.db $38 ; a2 38d8c2c4
+.db $4f ; a3 4fdff252
+.db $d1 ; a4 d1bb67f1
+.db $a6 ; a5 a6bc5767
+.db $3f ; a6 3fb506dd
+.db $48 ; a7 48b2364b
+.db $d8 ; a8 d80d2bda
+.db $af ; a9 af0a1b4c
+.db $36 ; aa 36034af6
+.db $41 ; ab 41047a60
+.db $df ; ac df60efc3
+.db $a8 ; ad a867df55
+.db $31 ; ae 316e8eef
+.db $46 ; af 4669be79
+.db $cb ; b0 cb61b38c
+.db $bc ; b1 bc66831a
+.db $25 ; b2 256fd2a0
+.db $52 ; b3 5268e236
+.db $cc ; b4 cc0c7795
+.db $bb ; b5 bb0b4703
+.db $22 ; b6 220216b9
+.db $55 ; b7 5505262f
+.db $c5 ; b8 c5ba3bbe
+.db $b2 ; b9 b2bd0b28
+.db $2b ; ba 2bb45a92
+.db $5c ; bb 5cb36a04
+.db $c2 ; bc c2d7ffa7
+.db $b5 ; bd b5d0cf31
+.db $2c ; be 2cd99e8b
+.db $5b ; bf 5bdeae1d
+.db $9b ; c0 9b64c2b0
+.db $ec ; c1 ec63f226
+.db $75 ; c2 756aa39c
+.db $02 ; c3 026d930a
+.db $9c ; c4 9c0906a9
+.db $eb ; c5 eb0e363f
+.db $72 ; c6 72076785
+.db $05 ; c7 05005713
+.db $95 ; c8 95bf4a82
+.db $e2 ; c9 e2b87a14
+.db $7b ; ca 7bb12bae
+.db $0c ; cb 0cb61b38
+.db $92 ; cc 92d28e9b
+.db $e5 ; cd e5d5be0d
+.db $7c ; ce 7cdcefb7
+.db $0b ; cf 0bdbdf21
+.db $86 ; d0 86d3d2d4
+.db $f1 ; d1 f1d4e242
+.db $68 ; d2 68ddb3f8
+.db $1f ; d3 1fda836e
+.db $81 ; d4 81be16cd
+.db $f6 ; d5 f6b9265b
+.db $6f ; d6 6fb077e1
+.db $18 ; d7 18b74777
+.db $88 ; d8 88085ae6
+.db $ff ; d9 ff0f6a70
+.db $66 ; da 66063bca
+.db $11 ;.db 11010b5c
+.db $8f ; dc 8f659eff
+.db $f8 ; dd f862ae69
+.db $61 ; de 616bffd3
+.db $16 ; df 166ccf45
+.db $a0 ; e0 a00ae278
+.db $d7 ; e1 d70dd2ee
+.db $4e ; e2 4e048354
+.db $39 ; e3 3903b3c2
+.db $a7 ; e4 a7672661
+.db $d0 ; e5 d06016f7
+.db $49 ; e6 4969474d
+.db $3e ; e7 3e6e77db
+.db $ae ; e8 aed16a4a
+.db $d9 ; e9 d9d65adc
+.db $40 ; ea 40df0b66
+.db $37 ; eb 37d83bf0
+.db $a9 ; ec a9bcae53
+.db $de ; ed debb9ec5
+.db $47 ; ee 47b2cf7f
+.db $30 ; ef 30b5ffe9
+.db $bd ; f0 bdbdf21c
+.db $ca ; f1 cabac28a
+.db $53 ; f2 53b39330
+.db $24 ; f3 24b4a3a6
+.db $ba ; f4 bad03605
+.db $cd ; f5 cdd70693
+.db $54 ; f6 54de5729
+.db $23 ; f7 23d967bf
+.db $b3 ; f8 b3667a2e
+.db $c4 ; f9 c4614ab8
+.db $5d ; fa 5d681b02
+.db $2a ; fb 2a6f2b94
+.db $b4 ; fc b40bbe37
+.db $c3 ; fd c30c8ea1
+.db $5a ; fe 5a05df1b
+.db $2d ; ff 2d02ef8d
+.ends
 .endif
 
 ; We fill with random data for CRCing
