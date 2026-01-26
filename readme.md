@@ -24,3 +24,12 @@ The final column assumes a CPU clock of 3579545Hz with no wait states.
 |ASYNCHRONOUS   | 1125 | 4622280 |           141.0 |          20.7s |
 |Z80TEST        | 1094 | 3704183 |           113.0 |          16.6s |
 |Z80TEST UNROLL | 2413 | 3284201 |           100.2 |          14.7s |
+|CLAUDE         | 1370 | 7532701 |           229.9 |          33.7s |
+
+AI
+--
+
+I spent some time with free versions of ChatGPT and Claude in Januray 2026,
+and recorded their most performant (working) efforts. Most notaby I found that the
+vast majority of the time, they'd produce faulty code. I didn't bother to retain the ChatGPT result,
+it was similarly slow. Both struggled to use the shadow registers and alignment to their advantage when prompted.
