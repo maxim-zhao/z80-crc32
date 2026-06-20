@@ -29,7 +29,7 @@ The final column assumes a CPU clock of 3579545Hz with no wait states.
 AI
 --
 
-I spent some time with free versions of ChatGPT and Claude in Januray 2026,
+I spent some time with free versions of ChatGPT and Claude in January 2026,
 and recorded their most performant (working) efforts. Most notaby I found that the
 vast majority of the time, they'd produce faulty code. I didn't bother to retain the ChatGPT result,
 it was similarly slow. Both struggled to use the shadow registers and alignment to their advantage when prompted.
